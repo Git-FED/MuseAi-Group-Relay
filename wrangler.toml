@@ -1,0 +1,15 @@
+name = "relay-room-chat"
+main = "worker.js"
+compatibility_date = "2026-10-18"
+workers_dev = true
+
+[assets]
+directory = "."
+binding = "ASSETS"
+run_worker_first = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "relay-room-messages"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"

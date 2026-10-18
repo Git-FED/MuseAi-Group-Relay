@@ -1,0 +1,17 @@
+{
+  "name": "relay-room-cloudflare",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check worker.js",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create relay-room-messages",
+    "db:migrate:local": "wrangler d1 migrations apply relay-room-messages --local",
+    "db:migrate:remote": "wrangler d1 migrations apply relay-room-messages --remote"
+  },
+  "devDependencies": {
+    "wrangler": "4.151.1"
+  }
+}
