@@ -13,32 +13,6 @@ function json(data, status = 200, extraHeaders = {}) {
   });
 }
 
-function constantTimeEqual(left, right) {
-  const encoder = new TextEncoder();
-  const a = encoder.encode(left);
-  const b = encoder.encode(right);
-  let difference = a.length ^ b.length;
-  const length = Math.max(a.length, b.length);
-  for (let index = 0; index < length; index += 1) {
-    difference |= (a[index] || 0) ^ (b[index] || 0);
-  }
-  return difference === 0;
-}
-
-function authorize(request, env) {
-  if (!env.RELAY_TOKEN) {
-    return json({ error: "Worker is missing the RELAY_TOKEN secret." }, 503);
-  }
-  const supplied = request.headers.get("authorization") || "";
-  const expected = `Bearer ${env.RELAY_TOKEN}`;
-  if (!constantTimeEqual(supplied, expected)) {
-    return json({ error: "Unauthorized. Provide the relay bearer token." }, 401, {
-      "www-authenticate": "Bearer",
-    });
-  }
-  return null;
-}
-
 function clampLimit(raw) {
   const parsed = Number.parseInt(raw || "100", 10);
   if (!Number.isFinite(parsed)) return 100;
@@ -126,8 +100,7 @@ export default {
       if (request.method !== "GET" && request.method !== "POST") {
         return json({ error: "Method not allowed." }, 405, { allow: "GET, POST" });
       }
-      const denied = authorize(request, env);
-      if (denied) return denied;
+      // Public open room: anyone who can reach the link may read and post.
       return request.method === "GET" ? listMessages(request, env) : createMessage(request, env);
     }
     if (url.pathname.startsWith("/api/")) {

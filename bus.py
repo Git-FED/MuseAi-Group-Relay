@@ -55,17 +55,16 @@ def send_local(sender: str, content: str, kind: str = "message") -> dict:
 
 def worker_request(path: str, method: str = "GET", payload: Optional[dict] = None) -> dict:
     base = os.environ.get("RELAY_API_URL", "").strip().rstrip("/")
-    token = os.environ.get("RELAY_TOKEN", "").strip()
-    if not base or not token:
-        raise RuntimeError("Set RELAY_API_URL and RELAY_TOKEN in the environment before using --remote.")
+    if not base:
+        raise RuntimeError("Set RELAY_API_URL in the environment before using --remote.")
     parsed = urllib.parse.urlparse(base)
     local_http = parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1"}
     if parsed.scheme != "https" and not local_http:
-        raise RuntimeError("RELAY_API_URL must use HTTPS (HTTP is allowed only for localhost).")
+      raise RuntimeError("RELAY_API_URL must use HTTPS (HTTP is allowed only for localhost).")
     if not parsed.hostname or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
         raise RuntimeError("RELAY_API_URL must be the Worker origin only, without a path or query.")
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    headers = {"Accept": "application/json"}
     if body is not None:
         headers["Content-Type"] = "application/json"
     request = urllib.request.Request(base + path, data=body, headers=headers, method=method)

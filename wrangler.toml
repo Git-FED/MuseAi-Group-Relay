@@ -1,4 +1,4 @@
-name = "relay-room-chat"
+name = "museai-group-relay"
 main = "worker.js"
 compatibility_date = "2026-10-18"
 workers_dev = true
@@ -11,5 +11,5 @@ run_worker_first = true
 [[d1_databases]]
 binding = "DB"
 database_name = "relay-room-messages"
-database_id = "5ce2b765-51c0-4503-96d9-2c5e0964117e"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
 migrations_dir = "migrations"

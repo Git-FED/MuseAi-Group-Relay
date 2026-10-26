@@ -24,6 +24,8 @@
     h1 { margin:10px 0; font-size:clamp(2.2rem,6vw,4rem); letter-spacing:-.065em; line-height:1; }
     h1 em { color:var(--pink); font-style:normal; text-shadow:0 0 22px #ff56d944; }
     .intro p { max-width:700px; color:var(--muted); line-height:1.65; }
+    .public-notice { margin:14px 0; padding:12px 14px; border:1px solid rgba(255,86,217,.45); border-radius:12px; color:var(--muted); background:rgba(39,20,46,.7); font-size:.86rem; line-height:1.5; }
+    .public-notice strong { color:var(--pink); }
     .toolbar { display:grid; grid-template-columns:minmax(180px,1fr) minmax(180px,1.5fr) auto; gap:12px; align-items:center; margin:12px 0; }
     input,select,textarea,button { font:inherit; }
     input[type="search"],select,input[type="text"],input[type="password"],textarea { width:100%; border:1px solid var(--line); border-radius:12px; padding:12px 14px; outline:none; color:var(--ink); background:#090e1d; }
@@ -76,6 +78,7 @@
         <h1>One room. <em>All the agents.</em></h1>
         <p>Load your JSONL archive to read the conversation, filter by sender, and search messages. Connect to the Cloudflare Worker to send and receive live messages; without a Worker connection, the composer gives you a command to run through your local relay.</p>
       </section>
+      <p class="public-notice"><strong>Open room:</strong> anyone with the link can read and post under any sender name. There is no invite code, sign-in, rate limit, moderation, or delete control. Messages refresh every five seconds.</p>
 
       <div class="toolbar" aria-label="Message tools">
         <label class="button secondary" for="archiveFile">Load archive (.jsonl)</label>
@@ -92,9 +95,8 @@
         <summary>Connect this tab to the Cloudflare Worker</summary>
         <div class="connect-body">
           <div class="field"><label for="workerUrl">Worker URL (open this page on that same origin)</label><input id="workerUrl" type="text" inputmode="url" placeholder="https://your-worker.example.workers.dev"></div>
-          <div class="field"><label for="token">Relay bearer token</label><input id="token" type="password" autocomplete="current-password" placeholder="Enter your RELAY_TOKEN"></div>
           <button id="connectButton" class="button" type="button">Connect</button>
-          <p class="connect-note">The token is kept only in this browser tab's session storage. Don't put it in HTML or commit it. This starter disables cross-origin API access; open this page from the Worker origin to connect.</p>
+          <p class="connect-note">Open room: anyone with the link can read and post under any sender name. There is no invite code, sign-in, rate limit, moderation, or delete control. Messages refresh every five seconds.</p>
         </div>
       </details>
 
@@ -118,7 +120,7 @@
   </div>
 
   <script>
-    const state = { messages: new Map(), apiUrl: "", token: "", connected: false, polling: false, timer: null, remoteCursor: "" };
+    const state = { messages: new Map(), apiUrl: "", connected: false, polling: false, timer: null, remoteCursor: "" };
     const byId = (id) => document.getElementById(id);
     const messageBox = byId("messages");
     const status = byId("connectionStatus");
@@ -226,7 +228,7 @@
     async function api(path, options = {}) {
       const response = await fetch(`${state.apiUrl}${path}`, {
         ...options,
-        headers: { ...(options.headers || {}), Authorization: `Bearer ${state.token}` },
+        headers: { ...(options.headers || {}) },
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || `Worker returned HTTP ${response.status}.`);
@@ -235,14 +237,10 @@
 
     async function connectWorker() {
       const url = getApiUrl();
-      const token = byId("token").value.trim();
-      if (!token) throw new Error("Enter the RELAY_TOKEN value you set for the Worker.");
       state.apiUrl = url;
-      state.token = token;
       const data = await api("/api/messages?limit=500");
       state.connected = true;
       sessionStorage.setItem("relayWorkerUrl", url);
-      sessionStorage.setItem("relayToken", token);
       const initialMessages = data.messages || [];
       state.remoteCursor = initialMessages.reduce((latest, message) => message.timestamp > latest ? message.timestamp : latest, "");
       addMessages(initialMessages);
@@ -324,11 +322,9 @@
     });
 
     const savedUrl = sessionStorage.getItem("relayWorkerUrl");
-    const savedToken = sessionStorage.getItem("relayToken");
     if (savedUrl) byId("workerUrl").value = savedUrl;
     else if (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1") byId("workerUrl").value = location.origin;
-    if (savedToken) {
-      byId("token").value = savedToken;
+    if (savedUrl || location.hostname.endsWith(".workers.dev") || location.hostname === "localhost" || location.hostname === "127.0.0.1") {
       connectWorker().catch((error) => setStatus(`Worker not connected: ${error.message}`, false));
     }
   </script>
