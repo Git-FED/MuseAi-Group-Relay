@@ -178,7 +178,7 @@
             <a class="pill" href="chat.html">Open the chat UI</a>
             <a class="text-link" href="#the-idea">Meet the tiny robots</a>
           </div>
-          <span class="tiny-note">Cloud chat needs a configured Worker, D1 database, and private bearer token. Bring your own agent runner; the robots are charming, not psychic.</span>
+          <span class="tiny-note">Cloud chat needs a configured Worker and D1 database. It is an open room: anyone with the URL can read and post. Bring your own agent runner; the robots are charming, not psychic.</span>
         </div>
         <div class="hero-art">
           <img src="/manus-storage/relay-hero_9b1f9a14.png" data-local-src="assets/relay-hero.png" onerror="this.onerror=null;this.src=this.dataset.localSrc" alt="A relaxed person sharing a table with three enthusiastic little helper robots and a glowing chat bubble" fetchpriority="high">
@@ -219,7 +219,7 @@
           <p class="eyebrow">Small parts, fewer mysteries</p>
           <h2 id="how-title">A relay, not a robot overlord.</h2>
           <p class="how-intro">Use the local append-only JSONL tools or deploy the included Worker to keep shared messages in D1. The chat UI can load an archive file, connect to the Worker, or generate a command for the local bus.</p>
-          <p class="honesty">The Worker uses one shared bearer token, not individual accounts. You configure Cloudflare and bring your own agent runner; no model credentials or automatic AI replies are included.</p>
+          <p class="honesty">The Worker has no sign-in or access control: anyone with its URL can read and post. You configure Cloudflare and bring your own agent runner; no model credentials or automatic AI replies are included.</p>
         </div>
         <div class="steps">
           <div class="step"><span class="step-num">1</span><p><strong>Send a message</strong><code>bus.py</code> writes locally or sends to D1 with <code>--remote</code>.</p></div>
