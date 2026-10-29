@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Local JSONL bus with optional Cloudflare Worker/D1 commands."""
+"""Local JSONL bus with authenticated Cloudflare Worker/D1 commands."""
 from __future__ import annotations
 
 import argparse
 import fcntl
 import json
+import mimetypes
 import os
 import sys
 import urllib.error
@@ -20,7 +21,7 @@ ARCHIVE = Path(os.environ.get("RELAY_ARCHIVE", ROOT / "message-archive.jsonl"))
 
 
 def timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def iter_messages(path: Path):
@@ -46,30 +47,69 @@ def append_record(record: dict) -> None:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def send_local(sender: str, content: str, kind: str = "message") -> dict:
+def send_local(sender: str, content: str, kind: str = "message", channel: str = "general", parent_id: Optional[str] = None) -> dict:
     record = {"id": str(uuid.uuid4()), "timestamp": timestamp(), "sender": sender,
-              "type": kind, "content": content}
+              "type": kind, "content": content, "channel": channel, "parent_id": parent_id,
+              "attachments": [], "status": "approved"}
     append_record(record)
     return record
 
 
-def worker_request(path: str, method: str = "GET", payload: Optional[dict] = None) -> dict:
+def worker_url() -> str:
     base = os.environ.get("RELAY_API_URL", "").strip().rstrip("/")
     if not base:
         raise RuntimeError("Set RELAY_API_URL in the environment before using --remote.")
     parsed = urllib.parse.urlparse(base)
     local_http = parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1"}
     if parsed.scheme != "https" and not local_http:
-      raise RuntimeError("RELAY_API_URL must use HTTPS (HTTP is allowed only for localhost).")
+        raise RuntimeError("RELAY_API_URL must use HTTPS (HTTP is allowed only for localhost).")
     if not parsed.hostname or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
         raise RuntimeError("RELAY_API_URL must be the Worker origin only, without a path or query.")
-    body = json.dumps(payload).encode("utf-8") if payload is not None else None
-    headers = {"Accept": "application/json"}
-    if body is not None:
+    return base
+
+
+def shared_headers(extra: Optional[dict] = None, agent_override: Optional[str] = None) -> dict:
+    key = os.environ.get("RELAY_SHARED_KEY", "")
+    if not key:
+        raise RuntimeError("Set RELAY_SHARED_KEY to the same shared key configured on the Worker.")
+    agent = agent_override or os.environ.get("RELAY_AGENT", os.environ.get("RELAY_SENDER", "human"))
+    headers = {"Accept": "application/json", "Authorization": f"Bearer {key}", "X-Relay-Agent": agent}
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+def worker_request(path: str, method: str = "GET", payload: Optional[dict] = None,
+                   files: Optional[list[Path]] = None, agent: Optional[str] = None) -> dict:
+    base = worker_url()
+    body: Optional[bytes] = None
+    headers = shared_headers(agent_override=agent)
+    if files:
+        boundary = "----Relay" + uuid.uuid4().hex
+        chunks: list[bytes] = []
+        for file_path in files:
+            file_path = Path(file_path)
+            if not file_path.is_file():
+                raise RuntimeError(f"File not found: {file_path}")
+            if file_path.stat().st_size > 20 * 1024 * 1024:
+                raise RuntimeError(f"File exceeds 20 MiB: {file_path}")
+            mime = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+            safe_name = file_path.name.replace('"', "_").replace("\r", "_").replace("\n", "_")
+            chunks.extend([
+                f"--{boundary}\r\n".encode(),
+                f'Content-Disposition: form-data; name="file"; filename="{safe_name}"\r\n'.encode(),
+                f"Content-Type: {mime}\r\n\r\n".encode(),
+                file_path.read_bytes(), b"\r\n",
+            ])
+        chunks.append(f"--{boundary}--\r\n".encode())
+        body = b"".join(chunks)
+        headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+    elif payload is not None:
+        body = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
     request = urllib.request.Request(base + path, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with urllib.request.urlopen(request, timeout=45) as response:
             result = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         try:
@@ -91,37 +131,60 @@ def print_messages(messages: list[dict]) -> None:
         print(json.dumps(item, ensure_ascii=False))
 
 
+def upload_files(paths: list[Path]) -> list[dict]:
+    attachments = []
+    for path in paths:
+        result = worker_request("/api/files", "POST", files=[path])
+        attachment = result.get("attachment")
+        if not isinstance(attachment, dict):
+            raise RuntimeError("Worker upload response did not contain attachment metadata.")
+        attachments.append(attachment)
+    return attachments
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Send and inspect messages in the local relay or Cloudflare Worker.")
+    parser = argparse.ArgumentParser(description="Send and inspect messages in the local relay or authenticated Cloudflare Worker.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_send = sub.add_parser("send", help="append a message locally or send it to the Worker")
-    p_send.add_argument("content", help="message text")
-    p_send.add_argument("--sender", default=os.environ.get("RELAY_SENDER", "human"))
+    p_send.add_argument("content", nargs="?", default="", help="message text (optional when sending files)")
+    p_send.add_argument("--sender", default=os.environ.get("RELAY_AGENT", os.environ.get("RELAY_SENDER", "human")))
     p_send.add_argument("--type", default="message", dest="kind")
-    p_send.add_argument("--remote", action="store_true", help="send through the Cloudflare Worker and mirror locally")
+    p_send.add_argument("--channel", default="general")
+    p_send.add_argument("--thread", default=None, help="approved parent message ID for a thread reply")
+    p_send.add_argument("--file", action="append", type=Path, default=[], help="attach a file (repeat up to 8 times; remote mode only)")
+    p_send.add_argument("--remote", action="store_true", help="send through the Worker and mirror locally")
 
     p_read = sub.add_parser("read", help="print recent messages as JSONL")
     p_read.add_argument("--limit", type=int, default=20)
     p_read.add_argument("--archive", type=Path, default=ARCHIVE)
-    p_read.add_argument("--remote", action="store_true", help="read recent messages from the Worker")
+    p_read.add_argument("--remote", action="store_true", help="read recent approved messages from the Worker")
+    p_read.add_argument("--channel", default=None)
 
-    p_sync = sub.add_parser("sync", help="copy recent Worker messages into the local JSONL archive")
+    p_sync = sub.add_parser("sync", help="copy recent approved Worker messages into the local JSONL archive")
     p_sync.add_argument("--limit", type=int, default=500, help="number of recent messages to fetch (1–500)")
 
     args = parser.parse_args()
     try:
         if args.command == "send":
+            if not args.content.strip() and not args.file:
+                parser.error("send needs message text or at least one --file")
+            if len(args.file) > 8:
+                parser.error("send accepts at most eight --file arguments")
             if args.remote:
+                attachments = upload_files(args.file) if args.file else []
                 response = worker_request("/api/messages", "POST", {
                     "sender": args.sender, "type": args.kind, "content": args.content,
-                })
+                    "channel": args.channel, "parent_id": args.thread, "attachments": attachments,
+                }, agent=args.sender)
                 record = response.get("message")
                 if not isinstance(record, dict):
                     raise RuntimeError("Worker API response did not contain a message.")
                 append_record(record)
             else:
-                record = send_local(args.sender, args.content, args.kind)
+                if args.file:
+                    parser.error("--file is available only with --remote; local JSONL does not store file bytes")
+                record = send_local(args.sender, args.content, args.kind, args.channel, args.thread)
             print(json.dumps(record, ensure_ascii=False))
             return 0
 
@@ -129,13 +192,18 @@ def main() -> int:
             if args.limit < 1:
                 parser.error("--limit must be at least 1")
             if args.remote:
-                response = worker_request(f"/api/messages?limit={min(args.limit, 500)}")
+                query = {"limit": min(args.limit, 500)}
+                if args.channel:
+                    query["channel"] = args.channel
+                response = worker_request("/api/messages?" + urllib.parse.urlencode(query))
                 messages = response.get("messages", [])
                 if not isinstance(messages, list):
                     raise RuntimeError("Worker API response did not contain a message list.")
                 print_messages(messages)
             else:
                 messages = list(iter_messages(args.archive) or [])
+                if args.channel:
+                    messages = [item for item in messages if item.get("channel", "general") == args.channel]
                 print_messages(messages[-args.limit:])
             return 0
 

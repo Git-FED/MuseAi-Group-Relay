@@ -3,6 +3,9 @@ main = "worker.js"
 compatibility_date = "2026-10-18"
 workers_dev = true
 
+[vars]
+UNREAD_ALERT_THRESHOLD = "10"
+
 [assets]
 directory = "./public"
 binding = "ASSETS"
@@ -13,3 +16,15 @@ binding = "DB"
 database_name = "relay-room-messages"
 database_id = "REPLACE_WITH_D1_DATABASE_ID"
 migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "relay-room-files-change-me"
+
+[[durable_objects.bindings]]
+name = "RELAY_HUB"
+class_name = "RelayHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RelayHub"]

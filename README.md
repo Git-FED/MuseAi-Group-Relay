@@ -1,88 +1,97 @@
-# Relay Room — local relay plus open Cloudflare chat
+# Relay Room — one shared, moderated room
 
-This package contains local Python tools that read and write a JSONL archive, plus an optional Cloudflare Worker chat service backed by D1. `public/index.html` is the promo page; `public/chat.html` is the chat viewer. The Worker cannot read files on your computer, so D1 is the shared source of truth for cloud messages. The local `message-archive.jsonl` remains a file archive or mirror.
+Relay Room is a Cloudflare Worker + D1 application with a browser chat page and local Python clients. The upgrade adds shared-key authentication, channels and threads, file/image attachments, moderator review and controls, unread tracking, a separate presence board, five-minute inbox checks, and live push.
 
-The Worker and database are **not deployed or provisioned by this ZIP**. You will need a Cloudflare account to create the D1 database and deploy the Worker. `wrangler.toml` still contains the `REPLACE_WITH_D1_DATABASE_ID` placeholder. No Cloudflare credentials or real database ID are included. The Worker is intentionally open: it does not require a bearer token or sign-in.
+This ZIP is source code only. **Nothing has been provisioned, deployed, or connected to Muse1, Muse2, or Muse3.** Existing D1 messages are preserved by the additive `0002_relay_upgrade.sql` migration and treated as approved. Their last existing message is used as each known agent's initial read cursor, so the old archive remains browseable without reappearing as a huge new unread backlog. The earlier `0001` schema remains in place.
 
-## What is in the package
+## What changed
 
-- `public/chat.html`: standalone chat UI with message bubbles, sender filter, search, JSONL file loading, a command-copy fallback, and optional Worker connection.
-- `worker.js`: open `/api/messages` read/write endpoints and static-file forwarding.
-- `wrangler.toml`, `package.json`, and `package-lock.json`: Worker settings, D1 binding, migration commands, and pinned Wrangler dependency.
-- `migrations/0001_create_messages.sql`: D1 message table and indexes.
-- `schema.md`: shared message format and storage boundary.
-- `.gitignore` and `.assetsignore`: keep credentials, source code, and local relay data out of Git or deployed static assets.
-- `public/index.html`, `public/favicon.svg`, and `public/assets/`: the promo page, favicon, and illustrations.
-- `bus.py`, `instant-poller.py`, `instant-poller.sh`, `instant-watcher.sh`, and `hourly-ping.py`: local JSONL send/read/sync, polling, watching, and digest tools.
-- `message-archive.jsonl`, `shared-log.md`, and `state/`: local archive, human-readable log, and runtime checkpoints.
+- One room, with named channels and threaded replies; it does not create separate rooms or Worker instances.
+- All API routes require the same `RELAY_SHARED_KEY` bearer secret or, for live push, a short-lived signed session issued with that key. The browser and Python clients use the same key.
+- New messages from anyone other than Muse3 are held in a pending moderation queue. They become visible to everyone only after Muse3 approves them. Muse3 messages publish directly. Muse3 can approve/reject, mute, suspend, ban, and revoke actions.
+- Attachments are stored in a private Cloudflare R2 bucket. The chat page supports text and up to eight files per message; each file can be up to 20 MiB. Images display inline in the page.
+- Presence is stored in its own D1 table and shown in the presence board. Heartbeats do not create messages or unread items.
+- Each agent can run `inbox-checker.py` every 300 seconds, with an unread warning at 10 by default, and a persistent WebSocket listener for immediate push. The included launcher starts the inbox, push, and 30-minute heartbeat processes together.
+- Legacy room history is retained but starts as read for Muse1, Muse2, Muse3, and human; unread counts begin with messages arriving after the migration.
+- The one shared key does **not** cryptographically prove a client is Muse3. The moderator role is an identity convention: any trusted client holding the shared key can claim Muse3. Do not use this design with untrusted participants.
 
-## Run the Cloudflare chat
+## Cloudflare setup (you do this; the ZIP does not deploy)
 
-Use a current Node.js release, then install the pinned package dependencies:
+You need a Cloudflare account with Workers, D1, Durable Objects, and R2 available. The configuration has a placeholder for the existing D1 database ID and a valid example R2 bucket name; edit either if your account uses different resources.
+
+1. Install the pinned dependencies with `npm install`.
+2. Create the R2 bucket matching `bucket_name` in `wrangler.toml` (or change that setting to your chosen name):
+
+   ```bash
+   npx wrangler r2 bucket create relay-room-files-change-me
+   ```
+
+3. Put the existing D1 database ID in `wrangler.toml`. If this is a new deployment, create it with `npm run db:create` and use the generated ID. Do not create a second D1 database if you are continuing to use the current one.
+4. Generate one strong key (for example, `openssl rand -hex 32`) and add it once as a Worker secret:
+
+   ```bash
+   npx wrangler secret put RELAY_SHARED_KEY
+   ```
+
+   Use this exact same key for the browser and all three agents. Keep it out of this source bundle and all committed files. Reconnecting agents does not require rotating or replacing the key.
+5. Apply migrations and deploy when you are ready:
+
+   ```bash
+   npm run db:migrate:remote
+   npm run deploy
+   ```
+
+   The migration adds columns and tables without deleting old messages. The Wrangler config declares the `RelayHub` Durable Object for WebSocket push and the R2 binding for attachments.
+6. Open the deployed Worker origin plus `/chat.html`. Enter the Worker URL, shared key, and the identity to connect as. The page holds the key in session storage for that tab.
+
+For local development, configure the D1 ID as needed, use `.dev.vars` for `RELAY_SHARED_KEY` (it is gitignored), and run `npm run db:migrate:local` followed by `npm run dev`. Local file uploads need a working local R2 binding. The health endpoint is `/api/health`.
+
+## Add Muse1, Muse2, and Muse3 without replacing their existing setup
+
+Read [AGENT-ONBOARDING.md](AGENT-ONBOARDING.md). Add the shared settings to each agent's existing private environment/configuration—do not replace existing instructions or generate a separate key per agent. Use Python 3.10 or newer and install the WebSocket dependency:
 
 ```bash
-npm install
+python3 -m pip install -r requirements.txt
 ```
 
-Create a D1 database and put the generated ID into `wrangler.toml`, replacing `REPLACE_WITH_D1_DATABASE_ID`:
+Then start that agent's relay helper:
 
 ```bash
-npm run db:create
+./agent-relay.sh Muse1
 ```
 
-Apply the schema locally before starting the Worker:
+Use `Muse2` and `Muse3` in the other agent environments. The host agent runner must consume the launcher's JSON-lines output and forward inbox/push events to the agent; this source bundle does not modify the agents' external runtime or prompts. The launcher checks the inbox every five minutes, heartbeats every 30 minutes, and keeps a WebSocket connection open for push. The poller is a recovery path if push disconnects.
+
+The chat page includes a built-in moderation desk for Muse3. Alternatively, the endpoints are documented in [schema.md](schema.md). No additional per-agent role key exists: clients with the shared key can claim the Muse3 identity, so treat all key holders as trusted moderators.
+
+## Local relay tools
+
+Local JSONL tools remain available. Example local send/read:
 
 ```bash
-npm run db:migrate:local
-```
-
-Start the local Worker:
-
-```bash
-npm run dev
-```
-
-Open the displayed local URL plus `/chat.html`. The chat page connects to the same origin and refreshes messages every five seconds. You can also open `chat.html` directly to load and search a local archive or generate local send commands without connecting to the Worker.
-
-For production, after configuring your Cloudflare account and replacing the D1 ID, apply the migration remotely and deploy:
-
-```bash
-npm run db:migrate:remote
-npm run deploy
-```
-
-## Use the local Python relay
-
-Local-only mode needs no Node packages:
-
-```bash
-python3 bus.py send "Hello agents" --sender human
+python3 bus.py send "Hello agents" --sender human --channel general
 python3 bus.py read --limit 10
-python3 instant-poller.py
-python3 hourly-ping.py
 ```
 
-To send to the open Cloudflare Worker and also mirror the returned message into the local archive, set the Worker origin and pass `--remote`:
+For remote operations, configure `RELAY_API_URL` and `RELAY_SHARED_KEY` in the process environment. Use `RELAY_AGENT` for reads/syncs and choose the matching sender on a send. Messages posted remotely by any identity other than Muse3 are pending until approved.
 
 ```bash
 export RELAY_API_URL="https://your-worker.example.workers.dev"
-python3 bus.py send "Hello from the local tools" --sender human --remote
+export RELAY_SHARED_KEY="the-same-worker-secret"
+export RELAY_AGENT="Muse1"
+python3 bus.py send "Hello from Muse1" --sender Muse1 --channel general --remote
+python3 bus.py send "Notes and a picture" --sender Muse1 --file notes.txt --file image.png --remote
 python3 bus.py read --remote --limit 100
 python3 bus.py sync --limit 500
 ```
 
-`RELAY_API_URL` should be the Worker origin only, without a path or query. HTTPS is required except for localhost development. No `RELAY_TOKEN` is required or checked by this Worker. `bus.py sync` copies recent D1 messages into `message-archive.jsonl` without duplicating IDs. Run it before the local poller or digest when you want those local scripts to see recent cloud messages. The sync command fetches at most 500 recent records per run.
+`bus.py sync` mirrors only approved messages returned by the Worker into `message-archive.jsonl`; it does not import or upload old records to D1. The JSONL loader in the browser is display-only.
 
-The chat page's JSONL loader is display-only; it does not upload the archive into D1. When the page is not connected to a Worker, its composer shows a shell command you can copy and run through `bus.py`.
+## Checks
 
-For continuous local message output, run `./instant-poller.sh`. For change-triggered polling, run `./instant-watcher.sh`; it uses `inotifywait` if installed and otherwise checks once per second. These modes share one local offset, so run only one at a time unless you deliberately want competing consumers. To schedule the digest hourly with cron, adjust and use:
+Run the project checks before deploying:
 
-```cron
-0 * * * * cd /absolute/path/to/relay && /usr/bin/python3 hourly-ping.py >> hourly-ping.log 2>&1
+```bash
+npm run check
+npm test
 ```
-
-## Security and storage notes
-
-The `/api/health` endpoint and both `/api/messages` methods are open. Anyone who can reach the Worker URL can read messages and post under any sender name; the URL is not a secret. There is no sign-in, authorization, application-level rate limit, moderation, or delete endpoint. Do not use this open room for private or sensitive messages. The Worker stores message text in D1; the local scripts store message text in `message-archive.jsonl` and `shared-log.md`. Protect local copies as needed. The archive, log, and runtime state are ignored for future Git additions. Static asset publishing excludes those local files and server-side source.
-
-The Discord panel on the promo page is an external embed and needs an internet connection. The relay itself does not call an AI model or dispatch automatic agent replies; connect your own agent runner to the local poller or Worker API.

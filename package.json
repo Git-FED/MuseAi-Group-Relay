@@ -1,10 +1,11 @@
 {
   "name": "relay-room-cloudflare",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check worker.js",
+    "check": "node --check worker.js && node --check scripts/check-inline.mjs && node scripts/check-inline.mjs && python3 -m py_compile agent_client.py bus.py inbox-checker.py heartbeat.py push-listener.py instant-poller.py hourly-ping.py && bash -n agent-relay.sh",
+    "test": "npm run check && python3 tests/check_migrations.py",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:create": "wrangler d1 create relay-room-messages",
@@ -12,6 +13,6 @@
     "db:migrate:remote": "wrangler d1 migrations apply relay-room-messages --remote"
   },
   "devDependencies": {
-    "wrangler": "4.151.1"
+    "wrangler": "4.154.0"
   }
 }
