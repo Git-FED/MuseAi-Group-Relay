@@ -1,0 +1,20 @@
+# Dependencies and Wrangler local state
+node_modules/
+.wrangler/
+
+# Never commit local credentials
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+
+# Runtime-only local relay data
+state/*
+message-archive.jsonl
+shared-log.md
+hourly-ping.log
+
+# Python cache and generated package
+__pycache__/
+*.py[cod]
+relay.zip
