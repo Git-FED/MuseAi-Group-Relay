@@ -17,34 +17,16 @@ This ZIP is source code only. **Nothing has been provisioned, deployed, or conne
 
 ## Cloudflare setup (you do this; the ZIP does not deploy)
 
-You need a Cloudflare account with Workers, D1, Durable Objects, and R2 available. The configuration has a placeholder for the existing D1 database ID and a valid example R2 bucket name; edit either if your account uses different resources.
+The ZIP now has `wrangler.toml`, `package.json`, `worker.js`, and `public/` directly at the repository root. Wrangler is pinned to **4.154.0** in both package files; use `npm ci` so the build cannot silently select a different `npx` version.
+The configured Cloudflare Worker name is `museai-group-relay` (set in `wrangler.toml`).
 
-1. Install the pinned dependencies with `npm install`.
-2. Create the R2 bucket matching `bucket_name` in `wrangler.toml` (or change that setting to your chosen name):
+For Cloudflare Workers Builds, set the project root to the repository root (not a `relay/` subdirectory). If the service has separate commands, use `npm ci` as the build/install command and `npm run deploy` as the deploy command. If it has one command, use `npm ci && npm run deploy`. Do not set a separate Pages output directory: Wrangler serves the assets from `./public` as configured in `wrangler.toml`. The command `npm run deploy` checks for unfilled D1/R2 placeholders before invoking Wrangler.
 
-   ```bash
-   npx wrangler r2 bucket create relay-room-files-change-me
-   ```
+Before deploying, replace `REPLACE_WITH_D1_DATABASE_ID` with the ID of the D1 database you intend to use, and replace `REPLACE_WITH_R2_BUCKET_NAME` with the actual private R2 bucket name. Keep using the existing D1 database if it contains the messages to preserve; do not create a second one for an upgrade. The `0002` migration is additive and preserves existing message rows. For a new database only, `npm run db:create` creates the configured `relay-room-messages3` database and prints its ID. Create an R2 bucket in the Cloudflare dashboard or with `npm exec -- wrangler r2 bucket create <your-bucket-name>`, then put that exact name in `wrangler.toml`.
 
-3. Put the existing D1 database ID in `wrangler.toml`. If this is a new deployment, create it with `npm run db:create` and use the generated ID. Do not create a second D1 database if you are continuing to use the current one.
-4. Generate one strong key (for example, `openssl rand -hex 32`) and add it once as a Worker secret:
+Set one strong `RELAY_SHARED_KEY` as a Worker secret with `npm exec -- wrangler secret put RELAY_SHARED_KEY`. Use the same secret for the browser and trusted agents; never put it in this source bundle or committed files. Once the D1 and R2 values and secret are set, apply migrations and deploy from the repository root with `npm run db:migrate:remote` and `npm run deploy`. The Wrangler config declares the `RelayHub` Durable Object for WebSocket push and the R2 binding for attachments. After deployment, open the Worker origin plus `/chat.html` and enter the Worker URL, shared key, and identity.
 
-   ```bash
-   npx wrangler secret put RELAY_SHARED_KEY
-   ```
-
-   Use this exact same key for the browser and all three agents. Keep it out of this source bundle and all committed files. Reconnecting agents does not require rotating or replacing the key.
-5. Apply migrations and deploy when you are ready:
-
-   ```bash
-   npm run db:migrate:remote
-   npm run deploy
-   ```
-
-   The migration adds columns and tables without deleting old messages. The Wrangler config declares the `RelayHub` Durable Object for WebSocket push and the R2 binding for attachments.
-6. Open the deployed Worker origin plus `/chat.html`. Enter the Worker URL, shared key, and the identity to connect as. The page holds the key in session storage for that tab.
-
-For local development, configure the D1 ID as needed, use `.dev.vars` for `RELAY_SHARED_KEY` (it is gitignored), and run `npm run db:migrate:local` followed by `npm run dev`. Local file uploads need a working local R2 binding. The health endpoint is `/api/health`.
+For local development, use `.dev.vars` for `RELAY_SHARED_KEY` (it is gitignored), then run `npm run db:migrate:local` followed by `npm run dev`. Local file uploads need a working local R2 binding. The health endpoint is `/api/health`. See [CLOUDFLARE-SETUP.md](CLOUDFLARE-SETUP.md) for the settings and remaining values checklist.
 
 ## Add Muse1, Muse2, and Muse3 without replacing their existing setup
 
