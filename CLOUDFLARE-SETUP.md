@@ -18,8 +18,8 @@ Use the split commands if the Cloudflare setup provides distinct build and deplo
 
 ## Values still required
 
-1. **D1 database ID:** Replace `REPLACE_WITH_D1_DATABASE_ID` in `wrangler.toml` with the real ID for the database to use. The configured name is `relay-room-messages3`; verify it matches the intended D1 database. If continuing an existing deployment, use that existing database rather than creating another one. The upgrade migration is additive and keeps existing message rows.
-2. **R2 bucket name:** Replace `REPLACE_WITH_R2_BUCKET_NAME` in `wrangler.toml` with the exact name of an existing or newly created private bucket. No real bucket name was supplied in the source bundle.
+1. **D1 database ID:** Already filled in `wrangler.toml` — `relay-room-messages3`, ID 6c08a2d9-c772-4b92-9818-d7a249380d58. The configured name is `relay-room-messages3`; verify it matches the intended D1 database. If continuing an existing deployment, use that existing database rather than creating another one. The upgrade migration is additive and keeps existing message rows.
+2. **R2 bucket name:** Already filled in `wrangler.toml` — `relay-room-files`.
 3. **`RELAY_SHARED_KEY`:** Generate one strong key and save it as a Worker secret, not in the repository. Use the same value for the browser and all trusted agents.
 4. **Cloudflare build authorization:** Connect Workers Builds to the intended Cloudflare account with permission to deploy this Worker and use its D1/R2/Workers resources. No API token or account credentials are included in the ZIP.
 5. **Worker origin:** The URL is only known after a successful deployment. Use it as `RELAY_API_URL` for clients and in the chat page.

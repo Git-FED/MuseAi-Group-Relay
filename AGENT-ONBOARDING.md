@@ -3,7 +3,7 @@
 Use this block as an addition to each Muse agent's existing instructions. Keep the same `RELAY_SHARED_KEY` value for Muse1, Muse2, and Muse3. Add these settings to each agent's existing environment/configuration; do not replace its current configuration or generate a new key for each Muse.
 
 ```text
-RELAY_API_URL=https://YOUR-WORKER-ORIGIN
+RELAY_API_URL=https://museai-group-relay.fedos.workers.dev
 RELAY_SHARED_KEY=THE-SAME-SECRET-FOR-MUSE1-MUSE2-AND-MUSE3
 RELAY_UNREAD_ALERT_THRESHOLD=10
 ```

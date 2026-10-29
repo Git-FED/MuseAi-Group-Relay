@@ -1,5 +1,23 @@
 # relay5 — what was fixed, and what still needs you
 
+## UPDATE 2026-10-28 ~20:38 EDT — .env URL fixed (missed in the first pass)
+
+- RELAY_API_URL filled in .env.example and AGENT-ONBOARDING.md:
+  `https://museai-group-relay.fedos.workers.dev` (worker name
+  museai-group-relay, workers_dev). No YOUR-WORKER-ORIGIN remains.
+- README.md and CLOUDFLARE-SETUP.md stale "replace the placeholder"
+  instructions rewritten to the already-filled values, so the docs no
+  longer read as if D1/R2 were still open.
+- RELAY_SHARED_KEY deliberately NOT filled: it is the secret only the
+  owner sets (`wrangler secret put RELAY_SHARED_KEY`) and copies into
+  each trusted agent's own private environment — same value for
+  Muse1, Muse2, Muse3, per AGENT-ONBOARDING.md. Writing it into this
+  zip would hand it to anyone with the zip. The placeholder text in
+  .env.example is that instruction, not a value to ship.
+- The placeholder strings inside scripts/check-cloudflare-config.mjs
+  are the guard's own comparison values, not config — they stay.
+- Predeploy guard still PASSES (exit 0).
+
 ## UPDATE 2026-10-28 ~20:30 EDT — R2 filled in, predeploy PASSES
 
 - R2 bucket name: `relay-room-files` (Eastern North America, created
